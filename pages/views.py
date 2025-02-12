@@ -1,10 +1,17 @@
 from django.shortcuts import render
-from django.views.generic import TemplateView
+from django.views.generic import TemplateView, ListView
 from django.views import View
 from django.http import HttpResponseRedirect
 from django import forms
+from django.shortcuts import render, redirect,get_object_or_404
+from django.urls import reverse
+from django.core.exceptions import ValidationError
+from .models import Product 
+from django import forms
+from django.core.exceptions import ValidationError
 from django.shortcuts import render, redirect
-
+from django.views import View
+from .models import Product
 
 # ===========================
 # Home Page View
@@ -48,16 +55,6 @@ class ContactPageView(TemplateView):
         return context
 
 
-# ===========================
-# Product Model (Simulated)
-# ===========================
-class Product:
-    products = [
-        {"id": "1", "name": "TV", "description": "Best TV", "price": 499.99},
-        {"id": "2", "name": "iPhone", "description": "Best iPhone", "price": 999.99},
-        {"id": "3", "name": "Chromecast", "description": "Best Chromecast", "price": 29.99},
-        {"id": "4", "name": "Glasses", "description": "Best Glasses", "price": 79.99},
-    ]
 
 
 
@@ -71,7 +68,7 @@ class ProductIndexView(View):
         viewData = {
             "title": "Products - Online Store",
             "subtitle": "List of products",
-            "products": Product.products,
+            "products":  Product.objects.all(),
         }
         return render(request, self.template_name, viewData)
 
@@ -83,38 +80,61 @@ from django.http import HttpResponseRedirect
 from django.urls import reverse
 
 class ProductShowView(View):
-    template_name = "products/show.html"
+    template_name = 'products/show.html'
 
     def get(self, request, id):
-        product_id = int(id) - 1  # Convertir el ID a índice de lista
+        try:
+            product_id = int(id)
+            if product_id < 1:
+                raise ValueError("Product ID must be 1 or greater")
+        except (ValueError, IndexError):
+            return HttpResponseRedirect(reverse('home'))
+        product = get_object_or_404(Product, pk=product_id)
 
-        # Validar si el ID del producto es válido
-        if 0 <= product_id < len(Product.products):
-            product = Product.products[product_id]
-            viewData = {
-                "title": product["name"] + " - Online Store",
-                "subtitle": product["name"] + " - Product information",
-                "product": product,
-            }
-            return render(request, self.template_name, viewData)
-        
-        # Si el ID no es válido, redirigir a home
-        return HttpResponseRedirect(reverse('home'))
+        view_data = {
+            "title": f"{product.name} - Online Store",
+            "subtitle": f"{product.name} - Product Information",
+            "product": product
+        }
 
+        return render(request, self.template_name, view_data)
 
-# ===========================
-# Product Form
-# ===========================
-class ProductForm(forms.Form):
+class ProductForm(forms.ModelForm):
     name = forms.CharField(required=True)
-    price = forms.FloatField(required=True, min_value=0.01) 
+    price = forms.FloatField(required=True)
+
+    class Meta:
+        model = Product
+        fields = ['name', 'price']
 
     def clean_price(self):
-        price = self.cleaned_data.get("price")
-        if price <= 0:
-            raise forms.ValidationError("The price must be greater than zero.")
+        price = self.cleaned_data.get('price')
+        if price is not None and price <= 0:
+            raise ValidationError('Price must be greater than zero.')
         return price
 
+class ProductCreateView(View):
+    template_name = 'products/create.html'
+
+    def get(self, request):
+        form = ProductForm()
+        view_data = {
+            "title": "Create Product",
+            "form": form
+        }
+        return render(request, self.template_name, view_data)
+
+    def post(self, request):
+        form = ProductForm(request.POST)
+        if form.is_valid():
+            form.save()
+            return redirect('product-created')
+        
+        view_data = {
+            "title": "Create Product",
+            "form": form
+        }
+        return render(request, self.template_name, view_data)
 
 
 # ===========================
@@ -126,11 +146,43 @@ class ProductCreateView(View):
     def get(self, request):
         form = ProductForm()
         return render(request, self.template_name, {"title": "Create product", "form": form})
-
+    
     def post(self, request):
         form = ProductForm(request.POST)
-
+    
         if form.is_valid():
-            return render(request, "products/created.html", {"title": "Product Created", "message": "Product created successfully!"})
+            print("Formulario válido, guardando en la base de datos...")
+            form.save()
+            return redirect('product-created')  
+
+        print(" Errores en el formulario:", form.errors) 
+
+        view_data = {
+        "title": "Create Product",
+        "form": form
+    }
+        return render(request, self.template_name, view_data)
+
+    
+
+
+# ===========================
+# Product list View
+# ===========================
+class ProductListView(ListView):
+    model = Product
+    template_name = 'product_list.html'
+    context_object_name = 'products' 
+
+    def get_context_data(self, **kwargs):
+        # Obtener el contexto base de la clase padre
+        context = super().get_context_data(**kwargs)
+
+        context['title'] = 'Products - Online Store'
+        context['subtitle'] = 'List of Products'
         
-        return render(request, self.template_name, {"title": "Create product", "form": form})
+        return context
+    
+
+class ProductCreatedView(TemplateView):
+    template_name = "products/created.html"
