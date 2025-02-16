@@ -1,17 +1,44 @@
-from django.shortcuts import render
+from django.shortcuts import render, redirect, get_object_or_404
 from django.views.generic import TemplateView, ListView
 from django.views import View
 from django.http import HttpResponseRedirect
-from django import forms
-from django.shortcuts import render, redirect,get_object_or_404
 from django.urls import reverse
 from django.core.exceptions import ValidationError
-from .models import Product 
 from django import forms
-from django.core.exceptions import ValidationError
-from django.shortcuts import render, redirect
-from django.views import View
 from .models import Product
+from .utils import ImageLocalStorage
+
+
+def ImageViewFactory(image_storage):
+    class ImageView(View):
+        template_name = 'images/index.html'
+
+        def get(self, request):
+            image_url = request.session.get('image_url', '')
+            return render(request, self.template_name, {'image_url': image_url})
+
+        def post(self, request):
+            image_url = image_storage.store(request)
+            request.session['image_url'] = image_url
+            return redirect('image_index')
+
+    return ImageView
+
+class ImageViewNoDI(View):
+    template_name = 'images/index.html'
+
+    def get(self, request):
+        image_url = request.session.get('image_url', '')
+        return render(request, self.template_name, {'image_url': image_url})
+
+    def post(self, request):
+        image_storage = ImageLocalStorage()
+        image_url = image_storage.store(request)
+
+        if image_url:
+            request.session['image_url'] = image_url
+        
+        return redirect('image_index')
 
 # ===========================
 # Home Page View
@@ -186,3 +213,50 @@ class ProductListView(ListView):
 
 class ProductCreatedView(TemplateView):
     template_name = "products/created.html"
+
+
+
+
+# ===========================
+# Cart View
+# ===========================
+class CartView(View):
+    template_name = 'cart/index.html'
+
+    def get(self, request):
+        products = {
+            121: {'name': 'Tv Samsung', 'price': '1000'},
+            11: {'name': 'iPhone', 'price': '2000'}
+        }
+        cart_products = {}
+        cart_product_data = request.session.get('cart_product_data', {})
+
+        for key, product in products.items():
+            if str(key) in cart_product_data.keys():
+                cart_products[key] = product
+        view_data = {
+            'title': 'Cart - Online Store',
+            'subtitle': 'Shopping Cart',
+            'products': products,
+            'cart_products': cart_products
+        }
+
+        return render(request, self.template_name, view_data)
+
+    def post(self, request, product_id):
+        cart_product_data = request.session.get('cart_product_data', {})
+        cart_product_data[product_id] = product_id
+        request.session['cart_product_data'] = cart_product_data
+
+        return redirect('cart_index')
+
+
+# ===========================
+# Cart Remove All View
+# ===========================
+class CartRemoveAllView(View):
+    def post(self, request):
+        if 'cart_product_data' in request.session:
+            del request.session['cart_product_data']
+        
+        return redirect('cart_index')
